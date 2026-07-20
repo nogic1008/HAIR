@@ -28,6 +28,88 @@ import type {
     ReceiverInfo,
 } from "./types.js";
 
+type EntityConfigNumberField =
+    | "fan_speed_steps"
+    | "brightness_steps"
+    | "color_temp_steps"
+    | "color_temp_min_kelvin"
+    | "color_temp_max_kelvin";
+
+type EntitySettingsDeviceType = "fan" | "light";
+
+type EntitySettingsFieldDef = {
+    field: EntityConfigNumberField;
+    labelKey: string;
+};
+
+type EntityResyncActionDef = {
+    actionKey: string;
+    countField: EntityConfigNumberField;
+    fallbackCount: number;
+    labelKey: string;
+};
+
+type EntitySettingsSpec = {
+    fields: EntitySettingsFieldDef[];
+    helpKey: string;
+    actions: EntityResyncActionDef[];
+};
+
+const ENTITY_SETTINGS_SPECS: Record<EntitySettingsDeviceType, EntitySettingsSpec> = {
+    fan: {
+        fields: [
+            {
+                field: "fan_speed_steps",
+                labelKey: "devdetail.entity_field_fan_speed_steps",
+            },
+        ],
+        helpKey: "devdetail.entity_settings_help",
+        actions: [
+            {
+                actionKey: "speed_down",
+                countField: "fan_speed_steps",
+                fallbackCount: 10,
+                labelKey: "devdetail.entity_resync_fan_min",
+            },
+        ],
+    },
+    light: {
+        fields: [
+            {
+                field: "brightness_steps",
+                labelKey: "devdetail.entity_field_brightness_steps",
+            },
+            {
+                field: "color_temp_steps",
+                labelKey: "devdetail.entity_field_color_temp_steps",
+            },
+            {
+                field: "color_temp_min_kelvin",
+                labelKey: "devdetail.entity_field_color_temp_min_kelvin",
+            },
+            {
+                field: "color_temp_max_kelvin",
+                labelKey: "devdetail.entity_field_color_temp_max_kelvin",
+            },
+        ],
+        helpKey: "devdetail.entity_settings_help",
+        actions: [
+            {
+                actionKey: "brightness_down",
+                countField: "brightness_steps",
+                fallbackCount: 10,
+                labelKey: "devdetail.entity_resync_light_brightness_min",
+            },
+            {
+                actionKey: "color_temp_warmer",
+                countField: "color_temp_steps",
+                fallbackCount: 10,
+                labelKey: "devdetail.entity_resync_light_warmest",
+            },
+        ],
+    },
+};
+
 // MDI: drag (six-dot grip)
 const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
@@ -77,6 +159,13 @@ export class IrDeviceDetail extends LitElement {
     // Inline name editing
     @state() private _editingName = false;
     @state() private _draftName = "";
+    @state() private _configDrafts: Record<EntityConfigNumberField, string> = {
+        fan_speed_steps: "",
+        brightness_steps: "",
+        color_temp_steps: "",
+        color_temp_min_kelvin: "",
+        color_temp_max_kelvin: "",
+    };
 
     // Triggers
     @state() private _triggers: IRTrigger[] = [];
@@ -177,6 +266,25 @@ export class IrDeviceDetail extends LitElement {
         setTimeout(() => {
             this._toast = null;
         }, 2400);
+    }
+
+    private _syncConfigDrafts() {
+        const config = this.device.entity_config ?? {};
+        this._configDrafts = {
+            fan_speed_steps: this._numberDraft(config.fan_speed_steps),
+            brightness_steps: this._numberDraft(config.brightness_steps),
+            color_temp_steps: this._numberDraft(config.color_temp_steps),
+            color_temp_min_kelvin: this._numberDraft(
+                config.color_temp_min_kelvin,
+            ),
+            color_temp_max_kelvin: this._numberDraft(
+                config.color_temp_max_kelvin,
+            ),
+        };
+    }
+
+    private _numberDraft(value: number | null | undefined): string {
+        return value == null ? "" : String(value);
     }
 
     // ---------------------------------------------------------------
@@ -281,6 +389,7 @@ export class IrDeviceDetail extends LitElement {
 
     connectedCallback(): void {
         super.connectedCallback();
+        this._syncConfigDrafts();
         void this._loadActionOptions();
         void this._loadTriggers();
         // Best-effort: receiver names for the trigger popover's scope labels.
@@ -296,6 +405,7 @@ export class IrDeviceDetail extends LitElement {
 
     updated(changed: Map<string, unknown>): void {
         if (changed.has("device")) {
+            this._syncConfigDrafts();
             void this._loadActionOptions();
             void this._loadTriggers();
         }
@@ -682,6 +792,154 @@ export class IrDeviceDetail extends LitElement {
         return "";
     }
 
+    private _onConfigDraftInput(field: EntityConfigNumberField, event: Event) {
+        this._configDrafts = {
+            ...this._configDrafts,
+            [field]: (event.target as HTMLInputElement).value,
+        };
+    }
+
+    private async _saveConfigNumberField(field: EntityConfigNumberField) {
+        const raw = this._configDrafts[field].trim();
+        const value = raw === "" ? null : Number.parseInt(raw, 10);
+        if (value !== null && (!Number.isFinite(value) || value < 1)) {
+            this._flash(t("devdetail.entity_settings_invalid_number"));
+            this._syncConfigDrafts();
+            return;
+        }
+
+        const current = this.device.entity_config?.[field] ?? null;
+        if (current === value) {
+            return;
+        }
+
+        this._busy = true;
+        try {
+            this.device = await this.api.updateDevice(this.device.id, {
+                entity_config: {
+                    [field]: value,
+                },
+            });
+            this._flash(t("devdetail.entity_settings_updated"));
+            this.dispatchEvent(
+                new CustomEvent("device-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        } catch (err) {
+            this._flash(
+                t("devdetail.update_failed", { message: (err as Error).message }),
+            );
+            this._syncConfigDrafts();
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    private _onConfigFieldKeyDown(
+        field: EntityConfigNumberField,
+        event: KeyboardEvent,
+    ) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            void this._saveConfigNumberField(field);
+        } else if (event.key === "Escape") {
+            this._syncConfigDrafts();
+        }
+    }
+
+    private async _sendMappedAction(actionKey: string, count = 1) {
+        const commandName = this.device.entity_config?.command_mapping?.[actionKey];
+        if (!commandName) {
+            this._flash(
+                t("devdetail.entity_resync_missing_mapping", { action: actionKey }),
+            );
+            return;
+        }
+        const command = this.device.commands.find(
+            (cmd) => cmd.name.toLowerCase() === commandName.toLowerCase(),
+        );
+        if (!command) {
+            this._flash(
+                t("devdetail.entity_resync_missing_command", {
+                    command: commandName,
+                }),
+            );
+            return;
+        }
+
+        this._busy = true;
+        try {
+            for (let i = 0; i < count; i += 1) {
+                await this.api.sendCommand(this.device.id, command.id);
+            }
+            this._flash(t("devdetail.entity_resync_sent", { name: command.name, count }));
+        } catch (err) {
+            this._flash(
+                t("devdetail.entity_resync_failed", {
+                    message: (err as Error).message,
+                }),
+            );
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    private _entitySettingsSpec(): EntitySettingsSpec | null {
+        const type = this.device.device_type;
+        if (type !== "fan" && type !== "light") {
+            return null;
+        }
+        return ENTITY_SETTINGS_SPECS[type];
+    }
+
+    private _renderEntitySettings() {
+        const spec = this._entitySettingsSpec();
+        if (!spec) return nothing;
+
+        return html`
+            <div class="settings-section">
+                <div class="settings-header">${t("devdetail.entity_settings_title")}</div>
+                <div class="settings-grid">
+                    ${spec.fields.map(
+                        ({ field, labelKey }) => html`
+                            <label class="settings-field">
+                                <span>${t(labelKey)}</span>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    .value=${this._configDrafts[field]}
+                                    ?disabled=${this._busy}
+                                    @input=${(e: Event) => this._onConfigDraftInput(field, e)}
+                                    @blur=${() => this._saveConfigNumberField(field)}
+                                    @keydown=${(e: KeyboardEvent) =>
+                                        this._onConfigFieldKeyDown(field, e)}
+                                />
+                            </label>
+                        `,
+                    )}
+                </div>
+                <div class="settings-help">${t(spec.helpKey)}</div>
+                <div class="settings-actions">
+                    ${spec.actions.map(
+                        ({ actionKey, countField, fallbackCount, labelKey }) => html`
+                            <button
+                                class="action-btn"
+                                ?disabled=${this._busy}
+                                @click=${() =>
+                                    this._sendMappedAction(
+                                        actionKey,
+                                        this.device.entity_config?.[countField] ?? fallbackCount,
+                                    )}
+                            >${t(labelKey)}</button>
+                        `,
+                    )}
+                </div>
+            </div>
+        `;
+    }
+
     // ---------------------------------------------------------------
     // Command actions
     // ---------------------------------------------------------------
@@ -942,6 +1200,8 @@ export class IrDeviceDetail extends LitElement {
                     ></ir-emitter-picker>
                 </div>
             </div>
+
+            ${this._renderEntitySettings()}
 
             <!-- Commands -->
             <div class="commands-section">
@@ -1349,6 +1609,56 @@ export class IrDeviceDetail extends LitElement {
         }
         .meta-value ir-emitter-picker {
             --picker-label-display: none;
+        }
+
+        .settings-section {
+            margin: 18px 0 0;
+            padding: 12px;
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            background: var(--secondary-background-color);
+        }
+        .settings-header {
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--secondary-text-color);
+            margin-bottom: 10px;
+        }
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px 12px;
+        }
+        .settings-field {
+            display: grid;
+            gap: 6px;
+            font-size: 0.84rem;
+        }
+        .settings-field span {
+            color: var(--primary-text-color);
+        }
+        .settings-field input {
+            width: 100%;
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--divider-color);
+            background: var(--card-background-color);
+            color: var(--primary-text-color);
+            font-family: inherit;
+            font-size: 0.85rem;
+            box-sizing: border-box;
+        }
+        .settings-help {
+            margin-top: 10px;
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
+        }
+        .settings-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         /* --- Buttons --- */

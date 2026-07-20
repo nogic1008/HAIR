@@ -127,6 +127,11 @@ export interface EntityConfig {
     hvac_modes?: string[] | null;
     fan_modes?: string[] | null;
     swing_modes?: string[] | null;
+    fan_speed_steps?: number | null;
+    brightness_steps?: number | null;
+    color_temp_steps?: number | null;
+    color_temp_min_kelvin?: number | null;
+    color_temp_max_kelvin?: number | null;
 }
 
 export interface IRDevice {

@@ -18,6 +18,7 @@ import type {
     DeviceSummary,
     DeviceTypeId,
     DismissActivityEvent,
+    EntityConfig,
     IRCommand,
     IRDevice,
     IRTrigger,
@@ -93,6 +94,7 @@ export class HairApi {
             model: string | null;
             emitter_entity_ids: string[];
             device_type: string;
+            entity_config: Partial<EntityConfig>;
         }>,
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({
