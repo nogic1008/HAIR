@@ -148,6 +148,11 @@ class EntityConfig:
     hvac_modes: list[str] | None = None
     fan_modes: list[str] | None = None
     swing_modes: list[str] | None = None
+    fan_speed_steps: int | None = None
+    brightness_steps: int | None = None
+    color_temp_steps: int | None = None
+    color_temp_min_kelvin: int | None = None
+    color_temp_max_kelvin: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -159,6 +164,11 @@ class EntityConfig:
             "hvac_modes": list(self.hvac_modes) if self.hvac_modes else None,
             "fan_modes": list(self.fan_modes) if self.fan_modes else None,
             "swing_modes": list(self.swing_modes) if self.swing_modes else None,
+            "fan_speed_steps": self.fan_speed_steps,
+            "brightness_steps": self.brightness_steps,
+            "color_temp_steps": self.color_temp_steps,
+            "color_temp_min_kelvin": self.color_temp_min_kelvin,
+            "color_temp_max_kelvin": self.color_temp_max_kelvin,
         }
 
     @classmethod
@@ -170,6 +180,11 @@ class EntityConfig:
             hvac_modes=data.get("hvac_modes"),
             fan_modes=data.get("fan_modes"),
             swing_modes=data.get("swing_modes"),
+            fan_speed_steps=data.get("fan_speed_steps"),
+            brightness_steps=data.get("brightness_steps"),
+            color_temp_steps=data.get("color_temp_steps"),
+            color_temp_min_kelvin=data.get("color_temp_min_kelvin"),
+            color_temp_max_kelvin=data.get("color_temp_max_kelvin"),
         )
 
 
@@ -295,6 +310,15 @@ class IRDevice:
                 list(self.entity_config.swing_modes)
                 if self.entity_config.swing_modes
                 else None
+            ),
+            fan_speed_steps=self.entity_config.fan_speed_steps,
+            brightness_steps=self.entity_config.brightness_steps,
+            color_temp_steps=self.entity_config.color_temp_steps,
+            color_temp_min_kelvin=(
+                self.entity_config.color_temp_min_kelvin
+            ),
+            color_temp_max_kelvin=(
+                self.entity_config.color_temp_max_kelvin
             ),
         )
         return IRDevice(

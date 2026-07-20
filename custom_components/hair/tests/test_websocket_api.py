@@ -250,6 +250,67 @@ async def test_update_device(fake_hass, mock_device):
 
 
 @pytest.mark.asyncio
+async def test_update_device_entity_config(fake_hass, mock_device):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 41,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "entity_config": {
+                "fan_speed_steps": 5,
+                "brightness_steps": 7,
+                "color_temp_steps": 6,
+                "color_temp_min_kelvin": 2700,
+                "color_temp_max_kelvin": 6500,
+            },
+        },
+    )
+
+    conn.send_result.assert_called_once()
+    assert mock_device.entity_config.fan_speed_steps == 5
+    assert mock_device.entity_config.brightness_steps == 7
+    assert mock_device.entity_config.color_temp_steps == 6
+    assert mock_device.entity_config.color_temp_min_kelvin == 2700
+    assert mock_device.entity_config.color_temp_max_kelvin == 6500
+
+
+@pytest.mark.asyncio
+async def test_update_device_entity_config_rejects_invalid_kelvin_range(
+    fake_hass, mock_device
+):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 42,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "entity_config": {
+                "color_temp_min_kelvin": 6500,
+                "color_temp_max_kelvin": 2700,
+            },
+        },
+    )
+
+    conn.send_error.assert_called_once()
+    manager.async_update_device.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_update_device_not_found(fake_hass):
     manager = MagicMock()
     manager.get_device.return_value = None

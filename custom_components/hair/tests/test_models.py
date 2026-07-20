@@ -161,6 +161,12 @@ def test_reorder_commands_missing_id_raises():
 
 
 def test_device_clone_preserves_non_id_fields(mock_device: IRDevice):
+    mock_device.entity_config.fan_speed_steps = 5
+    mock_device.entity_config.brightness_steps = 7
+    mock_device.entity_config.color_temp_steps = 6
+    mock_device.entity_config.color_temp_min_kelvin = 2700
+    mock_device.entity_config.color_temp_max_kelvin = 6500
+
     clone = mock_device.clone("Test TV (Copy)")
     assert clone.name == "Test TV (Copy)"
     assert clone.device_type == mock_device.device_type
@@ -176,6 +182,11 @@ def test_device_clone_preserves_non_id_fields(mock_device: IRDevice):
         clone.entity_config.command_mapping
         == mock_device.entity_config.command_mapping
     )
+    assert clone.entity_config.fan_speed_steps == 5
+    assert clone.entity_config.brightness_steps == 7
+    assert clone.entity_config.color_temp_steps == 6
+    assert clone.entity_config.color_temp_min_kelvin == 2700
+    assert clone.entity_config.color_temp_max_kelvin == 6500
 
 
 def test_device_clone_generates_fresh_ids(mock_device: IRDevice):
@@ -337,6 +348,11 @@ def test_entity_config_round_trip():
         temperature_presets=[68, 70, 72],
         hvac_modes=["cool", "heat"],
         fan_modes=["low", "high"],
+        fan_speed_steps=5,
+        brightness_steps=7,
+        color_temp_steps=6,
+        color_temp_min_kelvin=2700,
+        color_temp_max_kelvin=6500,
     )
     restored = EntityConfig.from_dict(config.to_dict())
     assert restored.platform == config.platform
@@ -344,6 +360,11 @@ def test_entity_config_round_trip():
     assert restored.temperature_presets == config.temperature_presets
     assert restored.hvac_modes == config.hvac_modes
     assert restored.fan_modes == config.fan_modes
+    assert restored.fan_speed_steps == config.fan_speed_steps
+    assert restored.brightness_steps == config.brightness_steps
+    assert restored.color_temp_steps == config.color_temp_steps
+    assert restored.color_temp_min_kelvin == config.color_temp_min_kelvin
+    assert restored.color_temp_max_kelvin == config.color_temp_max_kelvin
 
 
 def test_provider_enum_round_trip():

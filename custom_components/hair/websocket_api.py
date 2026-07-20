@@ -280,6 +280,23 @@ async def ws_create_device(
     vol.Optional("model"): vol.Any(str, None),
     vol.Optional("emitter_entity_ids"): [str],
     vol.Optional("device_type"): str,
+    vol.Optional("entity_config"): {
+        vol.Optional("fan_speed_steps"): vol.Any(
+            None, vol.All(vol.Coerce(int), vol.Range(min=1))
+        ),
+        vol.Optional("brightness_steps"): vol.Any(
+            None, vol.All(vol.Coerce(int), vol.Range(min=1))
+        ),
+        vol.Optional("color_temp_steps"): vol.Any(
+            None, vol.All(vol.Coerce(int), vol.Range(min=1))
+        ),
+        vol.Optional("color_temp_min_kelvin"): vol.Any(
+            None, vol.All(vol.Coerce(int), vol.Range(min=1))
+        ),
+        vol.Optional("color_temp_max_kelvin"): vol.Any(
+            None, vol.All(vol.Coerce(int), vol.Range(min=1))
+        ),
+    },
 })
 @websocket_api.async_response
 async def ws_update_device(
@@ -307,6 +324,24 @@ async def ws_update_device(
         device.emitter_entity_ids = list(msg["emitter_entity_ids"])
     if "device_type" in msg:
         device.device_type = DeviceType(msg["device_type"])
+    if "entity_config" in msg:
+        entity_config = msg["entity_config"]
+        for key, value in entity_config.items():
+            setattr(device.entity_config, key, value)
+
+        min_kelvin = device.entity_config.color_temp_min_kelvin
+        max_kelvin = device.entity_config.color_temp_max_kelvin
+        if (
+            min_kelvin is not None
+            and max_kelvin is not None
+            and min_kelvin >= max_kelvin
+        ):
+            connection.send_error(
+                msg["id"],
+                "invalid_format",
+                "color_temp_min_kelvin must be less than color_temp_max_kelvin",
+            )
+            return
 
     await manager.async_update_device(device)
     connection.send_result(msg["id"], _device_full(device))
