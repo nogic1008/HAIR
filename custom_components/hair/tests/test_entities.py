@@ -667,10 +667,14 @@ class TestHAIRClimateEntity:
 
 class TestHAIRFanEntity:
 
-    def _make(self, command_mapping=None, commands=None):
+    def _make(self, command_mapping=None, commands=None, *, fan_speed_steps=None):
         mapping = command_mapping or {}
         cmds = commands or []
-        config = EntityConfig(platform="fan", command_mapping=mapping)
+        config = EntityConfig(
+            platform="fan",
+            command_mapping=mapping,
+            fan_speed_steps=fan_speed_steps,
+        )
         device = _device(
             device_type=DeviceType.FAN,
             commands=cmds,
@@ -755,9 +759,9 @@ class TestHAIRFanEntity:
         )
         entity._percentage = 25
         await entity.async_set_percentage(75)
-        # delta=50, steps = 50//25 = 2
-        assert mgr.async_send_command.await_count == 2
-        assert entity._percentage == 75
+        # Default fan step count is 10 levels, so 25->75 spans 5 steps.
+        assert mgr.async_send_command.await_count == 5
+        assert entity._percentage == 80
 
     @pytest.mark.asyncio
     async def test_set_percentage_steps_down(self):
@@ -768,9 +772,9 @@ class TestHAIRFanEntity:
         )
         entity._percentage = 75
         await entity.async_set_percentage(25)
-        # delta=-50, steps = 50//25 = 2
-        assert mgr.async_send_command.await_count == 2
-        assert entity._percentage == 25
+        # Default fan step count is 10 levels, so 75->25 spans 5 steps.
+        assert mgr.async_send_command.await_count == 5
+        assert entity._percentage == 30
 
     @pytest.mark.asyncio
     async def test_set_percentage_no_change(self):
@@ -813,6 +817,10 @@ class TestHAIRFanEntity:
         entity, _ = self._make()
         assert entity.speed_count == 10
 
+    def test_speed_count_uses_configured_steps(self):
+        entity, _ = self._make(fan_speed_steps=7)
+        assert entity.speed_count == 7
+
     @pytest.mark.asyncio
     async def test_set_percentage_uses_direct_speed_level(self):
         speed_cmds = [_cmd(f"c{i}", f"S{i}") for i in range(1, 11)]
@@ -835,6 +843,19 @@ class TestHAIRFanEntity:
         mgr.async_send_command.assert_awaited_once_with("dev-1", "c0")
         assert entity._is_on is False
 
+    @pytest.mark.asyncio
+    async def test_set_percentage_uses_configured_step_count(self):
+        up_cmd = _cmd("c1", "Speed+")
+        entity, mgr = self._make(
+            command_mapping={"speed_up": "Speed+"},
+            commands=[up_cmd],
+            fan_speed_steps=5,
+        )
+        entity._percentage = 20
+        await entity.async_set_percentage(100)
+        assert mgr.async_send_command.await_count == 4
+        assert entity._percentage == 100
+
 
 # ===========================================================================
 # Light entity tests
@@ -843,10 +864,26 @@ class TestHAIRFanEntity:
 
 class TestHAIRLightEntity:
 
-    def _make(self, command_mapping=None, commands=None):
+    def _make(
+        self,
+        command_mapping=None,
+        commands=None,
+        *,
+        brightness_steps=None,
+        color_temp_steps=None,
+        color_temp_min_kelvin=None,
+        color_temp_max_kelvin=None,
+    ):
         mapping = command_mapping or {}
         cmds = commands or []
-        config = EntityConfig(platform="light", command_mapping=mapping)
+        config = EntityConfig(
+            platform="light",
+            command_mapping=mapping,
+            brightness_steps=brightness_steps,
+            color_temp_steps=color_temp_steps,
+            color_temp_min_kelvin=color_temp_min_kelvin,
+            color_temp_max_kelvin=color_temp_max_kelvin,
+        )
         device = _device(
             device_type=DeviceType.LIGHT,
             commands=cmds,
@@ -876,6 +913,16 @@ class TestHAIRLightEntity:
         assert entity.color_mode == ColorMode.BRIGHTNESS
         assert entity.supported_color_modes == {ColorMode.BRIGHTNESS}
 
+    def test_color_mode_color_temp(self):
+        entity, _ = self._make(command_mapping={"color_temp_warmer": "Warm"})
+        expected = getattr(
+            ColorMode,
+            "COLOR_TEMP",
+            getattr(ColorMode, "COLOR_TEMP_KELVIN", ColorMode.BRIGHTNESS),
+        )
+        assert entity.color_mode == expected
+        assert entity.supported_color_modes == {expected}
+
     def test_initial_state(self):
         entity, _ = self._make()
         assert entity.is_on is False
@@ -901,6 +948,45 @@ class TestHAIRLightEntity:
         await entity.async_turn_off()
         mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
         assert entity._is_on is False
+
+    @pytest.mark.asyncio
+    async def test_turn_on_with_brightness_uses_configured_steps(self):
+        on_cmd = _cmd("c1", "On")
+        up_cmd = _cmd("c2", "Bright+")
+        entity, mgr = self._make(
+            command_mapping={"turn_on": "On", "brightness_up": "Bright+"},
+            commands=[on_cmd, up_cmd],
+            brightness_steps=5,
+        )
+        await entity.async_turn_on(brightness=255)
+        assert mgr.async_send_command.await_count == 5
+        assert entity.brightness == 255
+
+    @pytest.mark.asyncio
+    async def test_turn_on_with_color_temp_uses_configured_steps_and_range(self):
+        on_cmd = _cmd("c1", "On")
+        cool_cmd = _cmd("c2", "Cooler")
+        entity, mgr = self._make(
+            command_mapping={
+                "turn_on": "On",
+                "color_temp_cooler": "Cooler",
+            },
+            commands=[on_cmd, cool_cmd],
+            color_temp_steps=5,
+            color_temp_min_kelvin=2700,
+            color_temp_max_kelvin=6500,
+        )
+        await entity.async_turn_on(color_temp_kelvin=6500)
+        assert mgr.async_send_command.await_count == 5
+        assert entity.color_temp_kelvin == 6500
+
+    def test_color_temp_min_max_kelvin_from_config(self):
+        entity, _ = self._make(
+            color_temp_min_kelvin=2800,
+            color_temp_max_kelvin=6200,
+        )
+        assert entity.min_color_temp_kelvin == 2800
+        assert entity.max_color_temp_kelvin == 6200
 
     def test_update_device(self):
         entity, _ = self._make()

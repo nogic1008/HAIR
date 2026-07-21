@@ -293,9 +293,61 @@ def _ordered_list_item_to_percentage(ordered_list, item):
     return (list_position * 100) // list_len
 
 
+def _percentage_to_ranged_value(low_high_range, percentage):
+    low, high = low_high_range
+    if high <= low:
+        return float(low)
+    bounded = max(0, min(100, percentage))
+    return low + ((high - low) * bounded / 100)
+
+
+def _ranged_value_to_percentage(low_high_range, value):
+    low, high = low_high_range
+    if high <= low:
+        return 100
+    bounded = max(low, min(high, value))
+    return round(((bounded - low) * 100) / (high - low))
+
+
 _stub("homeassistant.util.percentage", {
     "percentage_to_ordered_list_item": _percentage_to_ordered_list_item,
     "ordered_list_item_to_percentage": _ordered_list_item_to_percentage,
+    "percentage_to_ranged_value": _percentage_to_ranged_value,
+    "ranged_value_to_percentage": _ranged_value_to_percentage,
+})
+
+
+def _int_states_in_range(low_high_range):
+    low, high = low_high_range
+    if high < low:
+        return 0
+    return (high - low) + 1
+
+
+_stub("homeassistant.util.scaling", {
+    "int_states_in_range": _int_states_in_range,
+})
+
+
+def _brightness_to_value(low_high_scale, brightness):
+    low, high = low_high_scale
+    if high <= low:
+        return float(low)
+    bounded = max(1, min(255, brightness))
+    return low + ((bounded - 1) * (high - low) / 254)
+
+
+def _value_to_brightness(low_high_scale, value):
+    low, high = low_high_scale
+    if high <= low:
+        return 255
+    bounded = max(low, min(high, value))
+    return round(((bounded - low) * 254) / (high - low)) + 1
+
+
+_stub("homeassistant.util.color", {
+    "brightness_to_value": _brightness_to_value,
+    "value_to_brightness": _value_to_brightness,
 })
 
 # --- Light ---
@@ -303,6 +355,7 @@ _stub("homeassistant.util.percentage", {
 class _ColorMode(StrEnum):
     ONOFF = "onoff"
     BRIGHTNESS = "brightness"
+    COLOR_TEMP = "color_temp"
 
 class _LightEntity:
     _attr_has_entity_name = True

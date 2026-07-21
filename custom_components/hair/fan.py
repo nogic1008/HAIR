@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
@@ -11,7 +12,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util.percentage import (
     ordered_list_item_to_percentage,
     percentage_to_ordered_list_item,
+    percentage_to_ranged_value,
+    ranged_value_to_percentage,
 )
+from homeassistant.util.scaling import int_states_in_range
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
@@ -102,7 +106,12 @@ class HAIRFanEntity(FanEntity):
     @property
     def speed_count(self) -> int:
         mapping = self._device.entity_config.command_mapping
-        return len(self._mapped_speed_steps(mapping)) or SPEED_COUNT
+        mapped = len(self._mapped_speed_steps(mapping))
+        if mapped:
+            return mapped
+        configured = self._device.entity_config.fan_speed_steps
+        max_speed = configured if configured is not None and configured > 0 else SPEED_COUNT
+        return int_states_in_range((1, max_speed))
 
     @staticmethod
     def _mapped_speed_steps(mapping: dict[str, str]) -> list[str]:
@@ -151,20 +160,38 @@ class HAIRFanEntity(FanEntity):
             return
 
         target = percentage
-        current = self._percentage or 0
-        # Step toward target using speed_up / speed_down.
-        delta = target - current
+        if target == 0:
+            await self.async_turn_off()
+            return
+
+        speed_range = (1, self.speed_count + 1)
+        current_pct = self._percentage or 0
+        if current_pct <= 0:
+            current_pct = ranged_value_to_percentage(speed_range, speed_range[0])
+
+        current_speed = math.ceil(
+            percentage_to_ranged_value(speed_range, current_pct)
+        )
+        target_speed = math.ceil(
+            percentage_to_ranged_value(speed_range, target)
+        )
+        current_speed = max(speed_range[0], min(speed_range[1], current_speed))
+        target_speed = max(speed_range[0], min(speed_range[1], target_speed))
+        delta = target_speed - current_speed
+
         if delta > 0:
-            steps = max(1, delta // 25)
-            for _ in range(steps):
+            for _ in range(delta):
                 if not await self._send("speed_up"):
                     break
         elif delta < 0:
-            steps = max(1, abs(delta) // 25)
-            for _ in range(steps):
+            for _ in range(abs(delta)):
                 if not await self._send("speed_down"):
                     break
-        self._percentage = target
+
+        self._percentage = ranged_value_to_percentage(
+            speed_range,
+            target_speed,
+        )
         self.async_write_ha_state()
 
     async def async_oscillate(self, oscillating: bool) -> None:
